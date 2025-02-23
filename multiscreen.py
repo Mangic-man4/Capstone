@@ -1,60 +1,106 @@
 import tkinter as tk
 from screeninfo import get_monitors
 
-def update_text():
-    # Change the text dynamically on the second window
-    label_on_second_window.config(text="Text updated dynamically!")
+class CookingApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Main Window")
 
-def open_windows():
-    # Get all available monitors
-    monitors = get_monitors()
+        # Get all available monitors
+        self.monitors = get_monitors()
 
-    if len(monitors) < 2:
-        print("Only one monitor detected! Running in single-screen mode.")
-        root.state('zoomed')  # Maximize window if only one monitor
-        return
+        if len(self.monitors) < 2:
+            print("Only one monitor detected! Running in single-screen mode.")
+            self.root.state('zoomed')
+            return
 
-    primary_monitor = monitors[0]  # Assume first monitor is primary
-    secondary_monitor = monitors[1]  # Assume second monitor is secondary
+        self.primary_monitor = self.monitors[0]  # Primary screen
+        self.secondary_monitor = self.monitors[1]  # Secondary screen
 
-    # Set main window on the primary monitor
-    print(f"Placing primary window at: {primary_monitor.x}, {primary_monitor.y}")
-    root.geometry(f"{primary_monitor.width}x{primary_monitor.height}+{primary_monitor.x}+{primary_monitor.y}")
-    root.update()  # Force update to apply geometry first
+        # Set main window on the primary monitor
+        print(f"Placing primary window at: {self.primary_monitor.x}, {self.primary_monitor.y}")
+        self.root.geometry(f"{self.primary_monitor.width}x{self.primary_monitor.height}+{self.primary_monitor.x}+{self.primary_monitor.y}")
+        self.root.state('zoomed')
 
-    # Maximize the main window (root) on the primary monitor
-    root.state('zoomed')
+        # Create the sidebar menu on the primary screen
+        self.create_sidebar()
 
-    # Open the second window on the secondary monitor
-    second_window = tk.Toplevel(root)
-    second_window.title("Secondary Window")
-    print(f"Placing secondary window at: {secondary_monitor.x}, {secondary_monitor.y}")
-    second_window.geometry(f"{secondary_monitor.width}x{secondary_monitor.height}+{secondary_monitor.x}+{secondary_monitor.y}")
-    second_window.update()  # Force update to apply geometry first
+        # Create second window
+        self.open_secondary_window()
 
-    # Maximize the second window (on the secondary monitor)
-    second_window.state('zoomed')
+        # Track window resizing
+        self.root.bind("<Configure>", self.update_sidebar_font)
 
-    # Label in the secondary window
-    global label_on_second_window  # We need a reference to this label to update it later
-    label_on_second_window = tk.Label(second_window, text="This is the secondary screen", font=("Arial", 24))
-    label_on_second_window.pack(pady=50)
+    def create_sidebar(self):
+        """Creates a sidebar menu that adjusts based on window size."""
+        self.sidebar = tk.Frame(self.root, bg="gray30", width=200)
+        self.sidebar.pack(side="left", fill="y")
 
-    # Add a button to update the text dynamically
-    update_button = tk.Button(second_window, text="Update Text", command=update_text)
-    update_button.pack(pady=20)
+        self.menu_buttons = []  # Store buttons for font resizing
 
-# Create the main window
-root = tk.Tk()
-root.title("Main Window")
+        menu_options = {
+            "Main Menu": self.show_main_menu,
+            "Camera Views": self.show_camera,
+            "Griddle View": self.show_griddle,
+            "Calibration": self.show_calibration,
+            "Settings": self.show_settings
+        }
 
-# Label for the main menu
-label = tk.Label(root, text="Main Menu", font=("Arial", 32))
-label.pack(pady=50)
+        for text, command in menu_options.items():
+            btn = tk.Button(self.sidebar, text=text, command=command, fg="white", bg="gray40")
+            btn.pack(fill="x", pady=5)  # Add padding between buttons
+            self.menu_buttons.append(btn)  # Store button reference
 
-# Button to start maximizing the windows on both screens
-button = tk.Button(root, text="Open Maximized on Both Screens", command=open_windows)
-button.pack(pady=20)
+        self.main_content = tk.Frame(self.root, bg="gray25")
+        self.main_content.pack(side="right", fill="both", expand=True)
+
+        self.current_screen = None
+        self.show_main_menu()
+
+    def update_sidebar_font(self, event=None):
+        """Dynamically adjusts sidebar button font size based on window height."""
+        window_height = self.root.winfo_height()
+        font_size = max(10, window_height // 40)  # Adjust based on screen size
+
+        for button in self.menu_buttons:
+            button.config(font=("Arial", font_size))
+
+    def switch_screen(self, text):
+        """Updates the primary screen content dynamically."""
+        if self.current_screen:
+            self.current_screen.destroy()
+        self.current_screen = tk.Label(self.main_content, text=text, font=("Arial", 18), fg="white", bg="gray25")
+        self.current_screen.pack(expand=True)
+
+    def show_main_menu(self): self.switch_screen("🏠 Main Menu")
+    def show_camera(self): self.switch_screen("📷 Camera Views")
+    def show_griddle(self): self.switch_screen("🔥 Griddle View")
+    def show_calibration(self): self.switch_screen("⚙️ Calibration")
+    def show_settings(self): self.switch_screen("⚙️ Settings")
+
+    def open_secondary_window(self):
+        """Opens the second window on the secondary monitor."""
+        self.second_window = tk.Toplevel(self.root)
+        self.second_window.title("Secondary Window")
+
+        print(f"Placing secondary window at: {self.secondary_monitor.x}, {self.secondary_monitor.y}")
+        self.second_window.geometry(f"{self.secondary_monitor.width}x{self.secondary_monitor.height}+{self.secondary_monitor.x}+{self.secondary_monitor.y}")
+        self.second_window.state('zoomed')
+
+        # Label in the secondary window
+        self.label_on_second_window = tk.Label(self.second_window, text="🔥 Griddle Display", font=("Arial", 24))
+        self.label_on_second_window.pack(pady=50)
+
+        # Example dynamic update button
+        update_button = tk.Button(self.second_window, text="Update Griddle View", command=self.update_text)
+        update_button.pack(pady=20)
+
+    def update_text(self):
+        """Updates the secondary screen dynamically."""
+        self.label_on_second_window.config(text="Updated Griddle Data!")
 
 # Run the application
-root.mainloop()
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = CookingApp(root)
+    root.mainloop()
