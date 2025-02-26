@@ -105,12 +105,12 @@ class CookingApp:
     def start_timer(self, patty):
         """Countdown for the patty timer using after()"""
         def countdown():
-            if patty['time'] > 0:
-                patty['time'] -= 1
+            if patty['time'] >= 0:
                 self.update_testing_view()
+                patty['time'] -= 1
                 
-                # Start blinking when time <= 10
-                if patty['time'] == 5 and not patty['blinking']:
+                # Start blinking when time <= 4
+                if patty['time'] == 4 and not patty['blinking']:
                     patty['blinking'] = True
                     self.blink_patty(patty)
                 
@@ -125,18 +125,15 @@ class CookingApp:
     def blink_patty(self, patty):
         """Blinks the patty at a constant rate of 0.4 seconds using Tkinter's after()"""
         def toggle():
-            if patty in self.patties and patty['time'] > 0:
+            if patty in self.patties and patty['time'] >= 0:
                 patty['blink_state'] = not patty['blink_state']
                 new_color = "red" if patty['blink_state'] else "black"
                 self.canvas.itemconfig(patty['circle'], fill=new_color)
                 self.root.after(400, toggle)  #  0.4s interval blinking
         
         # Start blinking only if it's not already blinking
-        if not patty['blinking']:
-            patty['blinking'] = True
+        if patty['blinking']:
             toggle()
-        #if patty['blinking']:
-        #    toggle()
 
 # Run the application
 if __name__ == "__main__":
