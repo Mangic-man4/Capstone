@@ -9,8 +9,10 @@ class CookingApp:
         # Get all available monitors
         self.monitors = get_monitors()
         self.primary_monitor = self.monitors[0]
-        self.secondary_monitor = self.monitors[1] if len(self.monitors) > 1 else None
-
+        self.secondary_monitor = self.monitors[1] if len(self.monitors) > 1 else self.primary_monitor 
+        if len(self.monitors) == 1:
+            print("Only one monitor detected! Running in single-screen mode.")
+        
         # Set main window on the primary monitor
         self.root.geometry(f"{self.primary_monitor.width}x{self.primary_monitor.height}+{self.primary_monitor.x}+{self.primary_monitor.y}")
         self.root.state('zoomed')
