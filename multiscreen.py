@@ -40,7 +40,7 @@ class CookingApp:
             "Settings": self.show_settings,
             "Calibration": self.show_calibration,
             "Coordinate Testing": self.show_coordinate_testing,
-            "Thermal Camera View": self.show_thermal_view,
+            #"Thermal Camera View": self.show_thermal_view,
             "Webcam/Griddle View": self.show_griddle_view,
             "Simulated View": self.open_simulated_view
 
@@ -75,7 +75,7 @@ class CookingApp:
     def show_settings(self): self.switch_screen("⚙️ Settings")
     def show_calibration(self): self.switch_screen("🔧 Calibration")
     def show_coordinate_testing(self): self.setup_coordinate_testing()
-    def show_thermal_view(self): self.switch_screen("🌡️ Thermal Camera View")
+    #def show_thermal_view(self): self.switch_screen("🌡️ Thermal Camera View")
     def show_griddle_view(self): self.switch_screen("📷 Webcam/Griddle View")
 
     def setup_coordinate_testing(self):
