@@ -1,5 +1,8 @@
 import tkinter as tk
 from screeninfo import get_monitors
+import cv2
+from PIL import Image, ImageTk
+import numpy as np
 
 class CookingApp:
     def __init__(self, root):
@@ -40,9 +43,9 @@ class CookingApp:
             "Settings": self.show_settings,
             "Calibration": self.show_calibration,
             "Coordinate Testing": self.show_coordinate_testing,
-            #"Thermal Camera View": self.show_thermal_view,
             "Webcam/Griddle View": self.show_griddle_view,
-            "Simulated View": self.open_simulated_view
+            "Simulated View": self.open_simulated_view,
+            "Burger Vision": self.show_burger_vision 
 
         }
 
@@ -65,18 +68,99 @@ class CookingApp:
         for button in self.menu_buttons:
             button.config(font=("Arial", font_size))
 
+    def show_burger_vision(self):
+        """Displays Burger Vision analysis in the main window."""
+        self.switch_screen("🍔 Burger Vision Analysis")
+        
+        self.image_label = tk.Label(self.current_screen, bg="gray25")
+        self.image_label.pack()
+        
+        self.analysis_label = tk.Label(self.current_screen, text="", font=("Arial", 14), fg="white", bg="gray25")
+        self.analysis_label.pack(pady=10)
+        
+        self.analyze_burger_images()
+        self.update_burger_image()
+
     def switch_screen(self, text):
         if self.current_screen:
             self.current_screen.destroy()
-        self.current_screen = tk.Label(self.main_content, text=text, font=("Arial", 18), fg="white", bg="gray25")
-        self.current_screen.pack(expand=True)
+        self.current_screen = tk.Frame(self.main_content, bg="gray25")
+        self.current_screen.pack(fill="both", expand=True)
+        label = tk.Label(self.current_screen, text=text, font=("Arial", 18), fg="white", bg="gray25")
+        label.pack(pady=10)
+        #self.current_screen = tk.Label(self.main_content, text=text, font=("Arial", 18), fg="white", bg="gray25")
+        #self.current_screen.pack(expand=True)
 
     def show_main_menu(self): self.switch_screen("🏠 Main Menu")
     def show_settings(self): self.switch_screen("⚙️ Settings")
     def show_calibration(self): self.switch_screen("🔧 Calibration")
     def show_coordinate_testing(self): self.setup_coordinate_testing()
-    #def show_thermal_view(self): self.switch_screen("🌡️ Thermal Camera View")
     def show_griddle_view(self): self.switch_screen("📷 Webcam/Griddle View")
+
+    def analyze_burger_images(self):
+        """Loads burger images and extracts HSV values using a more robust method."""
+        try:
+            self.raw_patty = cv2.imread("patty_raw.png")
+            self.half_patty = cv2.imread("patty_half_cooked.png")
+            self.cooked_patty = cv2.imread("patty_ready.png")
+
+            if self.raw_patty is None or self.half_patty is None or self.cooked_patty is None:
+                print("Error: One or more images not found!")
+                self.analysis_label.config(text="Error: One or more images not found!")
+                return
+
+            print("All images loaded successfully!")
+            height_raw, width_raw, _ = self.raw_patty.shape
+            self.half_patty = cv2.resize(self.half_patty, (width_raw, height_raw))
+            self.cooked_patty = cv2.resize(self.cooked_patty, (width_raw, height_raw))
+
+            # Convert to HSV
+            hsv_raw = cv2.cvtColor(self.raw_patty, cv2.COLOR_BGR2HSV)
+            hsv_half = cv2.cvtColor(self.half_patty, cv2.COLOR_BGR2HSV)
+            hsv_cooked = cv2.cvtColor(self.cooked_patty, cv2.COLOR_BGR2HSV)
+
+            # Extract dominant hue values instead of simple averages
+            hues = [
+                self.get_dominant_hue(hsv_raw),
+                self.get_dominant_hue(hsv_half),
+                self.get_dominant_hue(hsv_cooked)
+            ]
+
+            # Assign categories dynamically
+            labels = ["Raw Patty", "Half-Cooked Patty", "Cooked Patty"]
+            sorted_hues, sorted_labels = zip(*sorted(zip(hues, labels)))
+
+            # Cooking analysis
+            result_text = "\nColor Analysis:\n"
+            for hue, label in zip(sorted_hues, sorted_labels):
+                result_text += f"✅ {label}: Hue {hue}\n"
+            
+            self.analysis_label.config(text=result_text)
+        
+        except Exception as e:
+            print(f"Error in processing images: {e}")
+            self.analysis_label.config(text=f"Error: {e}")
+
+    def get_dominant_hue(self, hsv_image):
+        """Finds the dominant hue value in the central region of an image, ignoring dark pixels."""
+        h, w, _ = hsv_image.shape
+        center_region = hsv_image[h//4:3*h//4, w//4:3*w//4, 0]  # Crop center
+        hue_values = center_region.flatten()
+        hue_values = hue_values[hue_values > 10]  # Ignore dark pixels
+        if len(hue_values) == 0:
+            return 0
+        return int(np.median(hue_values))
+
+    def update_burger_image(self):
+        """Displays the combined burger cooking images in the UI."""
+        combined_image = np.hstack((self.raw_patty, self.half_patty, self.cooked_patty))
+        combined_image = cv2.cvtColor(combined_image, cv2.COLOR_BGR2RGB)
+        img = Image.fromarray(combined_image)
+        img = img.resize((600, 200))
+        img_tk = ImageTk.PhotoImage(img)
+
+        self.image_label.configure(image=img_tk)
+        self.image_label.image = img_tk
 
     def setup_coordinate_testing(self):
         """Creates UI for entering patty positions and timer duration."""
