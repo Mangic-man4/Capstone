@@ -68,26 +68,13 @@ class CookingApp:
         for button in self.menu_buttons:
             button.config(font=("Arial", font_size))
 
-    def show_burger_vision(self):
-        """Displays Burger Vision analysis in the main window."""
-        self.switch_screen("🍔 Burger Vision Analysis")
-        
-        self.image_label = tk.Label(self.current_screen, bg="gray25")
-        self.image_label.pack()
-        
-        self.analysis_label = tk.Label(self.current_screen, text="", font=("Arial", 14), fg="white", bg="gray25")
-        self.analysis_label.pack(pady=10)
-        
-        self.analyze_burger_images()
-        self.update_burger_image()
-
     def switch_screen(self, text):
         if self.current_screen:
             self.current_screen.destroy()
         self.current_screen = tk.Frame(self.main_content, bg="gray25")
         self.current_screen.pack(fill="both", expand=True)
         label = tk.Label(self.current_screen, text=text, font=("Arial", 18), fg="white", bg="gray25")
-        label.pack(pady=10)
+        label.pack(pady=100)
         #self.current_screen = tk.Label(self.main_content, text=text, font=("Arial", 18), fg="white", bg="gray25")
         #self.current_screen.pack(expand=True)
 
@@ -96,9 +83,26 @@ class CookingApp:
     def show_calibration(self): self.switch_screen("🔧 Calibration")
     def show_coordinate_testing(self): self.setup_coordinate_testing()
     def show_griddle_view(self): self.switch_screen("📷 Webcam/Griddle View")
+    def show_burger_vision(self): 
+        """Displays Burger Vision analysis in the main window."""
+
+        self.switch_screen("🍔 Burger Vision Analysis")
+        
+        self.image_label = tk.Label(self.current_screen, bg="gray25")
+        self.image_label.pack()
+        
+        self.analysis_label = tk.Label(self.current_screen, text="", font=("Arial", 14), fg="white", bg="gray25")
+        self.analysis_label.pack(pady=10)
+
+        self.color_display = tk.Canvas(self.current_screen, width=300, height=50, bg="gray25", highlightthickness=0)
+        self.color_display.pack(pady=5)
+        
+        self.analyze_burger_images()
+        self.update_burger_image()
+
 
     def analyze_burger_images(self):
-        """Loads burger images and extracts HSV values using a more robust method."""
+        """Loads burger images and dynamically determines cooking states."""
         try:
             self.raw_patty = cv2.imread("patty_raw.png")
             self.half_patty = cv2.imread("patty_half_cooked.png")
@@ -119,21 +123,22 @@ class CookingApp:
             hsv_half = cv2.cvtColor(self.half_patty, cv2.COLOR_BGR2HSV)
             hsv_cooked = cv2.cvtColor(self.cooked_patty, cv2.COLOR_BGR2HSV)
 
-            # Extract dominant hue values instead of simple averages
+            # Extract dominant hue values using the center region of the patty
             hues = [
                 self.get_dominant_hue(hsv_raw),
                 self.get_dominant_hue(hsv_half),
                 self.get_dominant_hue(hsv_cooked)
             ]
 
-            # Assign categories dynamically
-            labels = ["Raw Patty", "Half-Cooked Patty", "Cooked Patty"]
-            sorted_hues, sorted_labels = zip(*sorted(zip(hues, labels)))
-
-            # Cooking analysis
-            result_text = "\nColor Analysis:\n"
-            for hue, label in zip(sorted_hues, sorted_labels):
-                result_text += f"✅ {label}: Hue {hue}\n"
+            # Assign fixed categories
+            labels = ["Raw (10%)", "Half-Cooked (60%)", "Fully Cooked (100%)"]
+            colors = [self.hue_to_rgb(hue) for hue in hues]
+            
+            result_text = "\nCooking State Detection:\n"
+            self.color_display.delete("all")
+            for i, (hue, label, color) in enumerate(zip(hues, labels, colors)):
+                result_text += f" {label}: Hue {hue}\n"
+                self.color_display.create_rectangle(10 + i * 100, 10, 90 + i * 100, 40, fill=color, outline="white")
             
             self.analysis_label.config(text=result_text)
         
@@ -150,6 +155,12 @@ class CookingApp:
         if len(hue_values) == 0:
             return 0
         return int(np.median(hue_values))
+    
+    def hue_to_rgb(self, hue):
+        """Converts a hue value to an approximate RGB color."""
+        import colorsys
+        r, g, b = colorsys.hsv_to_rgb(hue / 180.0, 1, 1)
+        return f'#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}'
 
     def update_burger_image(self):
         """Displays the combined burger cooking images in the UI."""
