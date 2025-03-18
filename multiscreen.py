@@ -32,6 +32,23 @@ class CookingApp:
         if self.secondary_monitor:
             self.open_simulated_view()
 
+        # Initialize webcam
+        self.cap = None
+        self.video_label = None
+
+    def find_camera(self):
+        """Attempts to find an external camera, falls back to default webcam if not found."""
+        """Only used with secondary camera find method"""
+        for i in range(1, 2):  # Check for external cameras at indices 1, 2, 3, etc.
+            cap = cv2.VideoCapture(i)
+            if cap.isOpened():
+                print(f"External camera found at index {i}.")
+                return cap
+            cap.release()
+        print("No external camera found, falling back to default webcam at index 0.")
+        cap = cv2.VideoCapture(0)  # Fallback to default webcam
+        return cap
+
     def create_sidebar(self):
         """Creates a sidebar menu that adjusts based on window size."""
         self.sidebar = tk.Frame(self.root, bg="gray30", width=200)
@@ -50,7 +67,9 @@ class CookingApp:
         }
 
         for text, command in menu_options.items():
-            btn = tk.Button(self.sidebar, text=text, command=command, fg="white", bg="gray40")
+            #btn = tk.Button(self.sidebar, text=text, command=command, fg="white", bg="gray40")
+            btn = tk.Button(self.sidebar, text=text, command=lambda cmd=command: self.switch_tab(cmd), fg="white", bg="gray40")
+
             btn.pack(fill="x", pady=5)
             self.menu_buttons.append(btn)
 
@@ -59,6 +78,12 @@ class CookingApp:
 
         self.current_screen = None
         self.show_main_menu()
+    
+    def switch_tab(self, command):
+        """Switches tabs and ensures the webcam is properly released when needed."""
+        if self.cap:
+            self.close_webcam()
+        command()
 
     def update_sidebar_font(self, event=None):
         """Dynamically adjusts sidebar button font size based on window height."""
@@ -75,14 +100,29 @@ class CookingApp:
         self.current_screen.pack(fill="both", expand=True)
         label = tk.Label(self.current_screen, text=text, font=("Arial", 18), fg="white", bg="gray25")
         label.pack(pady=100)
-        #self.current_screen = tk.Label(self.main_content, text=text, font=("Arial", 18), fg="white", bg="gray25")
-        #self.current_screen.pack(expand=True)
+
 
     def show_main_menu(self): self.switch_screen("🏠 Main Menu")
     def show_settings(self): self.switch_screen("⚙️ Settings")
     def show_calibration(self): self.switch_screen("🔧 Calibration")
     def show_coordinate_testing(self): self.setup_coordinate_testing()
-    def show_griddle_view(self): self.switch_screen("📷 Webcam/Griddle View")
+
+    def show_griddle_view(self):
+        """Displays the live video feed and applies color-based burger detection."""
+        self.switch_screen("📷 Webcam/Griddle View")
+        self.video_label = tk.Label(self.current_screen)
+        self.video_label.pack()
+        
+        #self.cap = self.find_camera()  # Use the method to find the correct camera (secondary method)
+        self.cap = cv2.VideoCapture(1)  # Default method (0 for pc's webcam, 1 for external camera)
+
+        if not self.cap.isOpened():  # Check if the camera opened successfully
+            print("External camera not found. Falling back to default webcam at index 0.")
+            self.cap = cv2.VideoCapture(0)  # Fallback to the built-in webcam (index 0)
+
+        self.update_webcam_feed()
+        
+
     def show_burger_vision(self): 
         """Displays Burger Vision analysis in the main window."""
 
@@ -100,6 +140,47 @@ class CookingApp:
         self.analyze_burger_images()
         self.update_burger_image()
 
+    def update_webcam_feed(self):
+        """Captures video frames, applies burger detection, and updates the Tkinter UI."""
+        if self.cap:
+            ret, frame = self.cap.read()
+            if ret:
+                frame = cv2.flip(frame, 1)  # Flip horizontally for natural mirroring
+                processed_frame = self.detect_burgers(frame)  # Apply burger detection
+                img = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB)
+                img = Image.fromarray(img)
+                img = ImageTk.PhotoImage(img)
+                
+                self.video_label.config(image=img)
+                self.video_label.image = img
+                
+            self.current_screen.after(10, self.update_webcam_feed)  # Refresh at ~60 FPS
+
+    def detect_burgers(self, frame):
+        """Detects burger patties using color and shape analysis."""
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        
+        # Define color range for detecting browned patties (adjust if needed)
+        lower_brown = np.array([5, 50, 50])  # Lower HSV threshold
+        upper_brown = np.array([30, 255, 255])  # Upper HSV threshold
+        mask = cv2.inRange(hsv, lower_brown, upper_brown)
+        
+        # Find contours from the mask
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            if area > 500:  # Ignore small noise
+                x, y, w, h = cv2.boundingRect(cnt)
+                cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)  # Draw bounding box
+                cv2.putText(frame, "Burger", (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+        
+        return frame
+
+    def close_webcam(self):
+        """Releases the webcam when switching away from the Webcam/Griddle View."""
+        if self.cap:
+            self.cap.release()
+            self.cap = None
 
     def analyze_burger_images(self):
         """Loads burger images and dynamically determines cooking states."""
