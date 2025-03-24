@@ -3,6 +3,9 @@ from screeninfo import get_monitors
 import cv2
 from PIL import Image, ImageTk
 import numpy as np
+import torch
+from ultralytics import YOLO
+
 
 class CookingApp:
     def __init__(self, root):
@@ -36,6 +39,13 @@ class CookingApp:
         self.cap = None
         self.video_label = None
 
+        # Load YOLOv5 Model
+        #self.model = torch.hub.load('ultralytics/yolov5', 'custom', path='best.pt', source='local') #Old
+        self.model = YOLO("yolov5s.pt")  # 'yolov5s.pt' is a small pre-trained model
+        #yolo task=detect mode=predict model=yolov5s.pt source=0  <-- run in command prompt!!
+
+
+
     def find_camera(self):
         """Attempts to find an external camera, falls back to default webcam if not found."""
         """Only used with secondary camera find method"""
@@ -49,6 +59,7 @@ class CookingApp:
         cap = cv2.VideoCapture(0)  # Fallback to default webcam
         return cap
 
+    
     def create_sidebar(self):
         """Creates a sidebar menu that adjusts based on window size."""
         self.sidebar = tk.Frame(self.root, bg="gray30", width=200)
@@ -62,7 +73,8 @@ class CookingApp:
             "Coordinate Testing": self.show_coordinate_testing,
             "Webcam/Griddle View": self.show_griddle_view,
             "Simulated View": self.open_simulated_view,
-            "Burger Vision": self.show_burger_vision 
+            "Burger Vision": self.show_burger_vision,
+            "AI Burger Detection": self.show_ai_burger_detection
 
         }
 
@@ -177,10 +189,52 @@ class CookingApp:
         return frame
 
     def close_webcam(self):
-        """Releases the webcam when switching away from the Webcam/Griddle View."""
+        """Releases the webcam when switching away from the Webcam/Griddle or AI Burger Detection View."""
         if self.cap:
             self.cap.release()
             self.cap = None
+
+    def show_ai_burger_detection(self):
+        """Displays AI-based burger detection in the main window."""
+        self.switch_screen("🤖 AI Burger Detection")
+        self.video_label = tk.Label(self.current_screen)
+        self.video_label.pack()
+        
+        self.cap = cv2.VideoCapture(1)  # External camera
+        if not self.cap.isOpened():
+            print("External camera not found. Falling back to default webcam.")
+            self.cap = cv2.VideoCapture(0)
+        
+        self.update_ai_detection()
+
+    def update_ai_detection(self):
+        """Runs YOLOv5 on the live feed and updates the UI."""
+        if self.cap:
+            ret, frame = self.cap.read()
+            if ret:
+                frame = cv2.flip(frame, 1)
+                processed_frame = self.detect_ai_burgers(frame)
+                img = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB)
+                img = Image.fromarray(img)
+                img = ImageTk.PhotoImage(img)
+                
+                self.video_label.config(image=img)
+                self.video_label.image = img
+            
+            self.current_screen.after(10, self.update_ai_detection)
+    
+    def detect_ai_burgers(self, frame):
+        """Uses YOLOv5 to detect burgers and their doneness levels."""
+        results = self.model(frame)
+        detections = results.pandas().xyxy[0]
+        
+        for _, row in detections.iterrows():
+            x1, y1, x2, y2, label, conf = int(row['xmin']), int(row['ymin']), int(row['xmax']), int(row['ymax']), row['name'], row['confidence']
+            color = (0, 255, 0) if label == 'raw' else (0, 255, 255) if label == 'flip_ready' else (255, 0, 0) if label == 'flipped' else (0, 0, 255)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+            cv2.putText(frame, f"{label} ({conf:.2f})", (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+        
+        return frame
 
     def analyze_burger_images(self):
         """Loads burger images and dynamically determines cooking states."""
