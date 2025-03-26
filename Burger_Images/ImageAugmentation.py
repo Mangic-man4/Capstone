@@ -18,8 +18,8 @@ transform = A.Compose([
 ])
 
 # Input and output directories
-input_folder = "C:\Users\Alexander\Documents\School\Capstone\Burger_Images\1_Raw"  # Change to your actual folder
-output_folder = "C:\Users\Alexander\Documents\School\Capstone\Burger_Images\1_Raw_Augmented"
+input_folder = "C:\Users\alexa\Documents\School docs\Capstone\Burger_Images\1_Raw" 
+output_folder = "C:\Users\alexa\Documents\School docs\Capstone\Burger_Images\1_Raw_Augmented"
 os.makedirs(output_folder, exist_ok=True)
 
 # Get list of images

@@ -18,10 +18,10 @@ transform = A.Compose([
 ], bbox_params=A.BboxParams(format='yolo', label_fields=['class_labels']))
 
 # Input and output directories
-input_folder = "data/original_images"  # Change this to your folder
-label_folder = "data/original_labels"  # YOLO label .txt files
-output_folder = "data/augmented_images"
-output_label_folder = "data/augmented_labels"
+input_folder = "Capstone\Burger_Images\1_Raw"  # Change this to your folder
+label_folder = "Capstone\Burger_Images\1_Raw_Labels"  # YOLO label .txt files
+output_folder = "Capstone\Burger_Images\1_Raw_Augmented"
+output_label_folder = "Capstone\Burger_Images\1_Raw_Augmented_Labels"
 
 os.makedirs(output_folder, exist_ok=True)
 os.makedirs(output_label_folder, exist_ok=True)
