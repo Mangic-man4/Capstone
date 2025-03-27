@@ -14,16 +14,21 @@ transform = A.Compose([
     A.Rotate(limit=15, p=0.5),
     A.RandomGamma(p=0.3),
     A.MotionBlur(blur_limit=5, p=0.2),
-    A.GaussNoise(var_limit=(10.0, 50.0), p=0.3)
+    A.GaussNoise(std_range=(0.1, 0.2), p=0.3)  # Adjust range if needed
 ])
 
+# Get the base directory where the script is located
+base_dir = os.path.dirname(os.path.abspath(__file__))
+
 # Input and output directories
-input_folder = "C:\Users\alexa\Documents\School docs\Capstone\Burger_Images\1_Raw" 
-output_folder = "C:\Users\alexa\Documents\School docs\Capstone\Burger_Images\1_Raw_Augmented"
+input_folder = os.path.join(base_dir, "1_Raw")  
+output_folder = os.path.join(base_dir, "1_Raw_Augmented")  
 os.makedirs(output_folder, exist_ok=True)
 
 # Get list of images
-image_paths = glob.glob(os.path.join(input_folder, "*"))
+image_paths = []
+for ext in ["*.jpg", "*.jpeg", "*.png"]:
+    image_paths.extend(glob.glob(os.path.join(input_folder, ext)))
 
 def augment_and_save(image_path):
     img = cv2.imread(image_path)
@@ -32,10 +37,11 @@ def augment_and_save(image_path):
     
     filename = os.path.basename(image_path).split('.')[0]
 
-    for i in range(5):  # Create 5 variations per image
-        augmented = transform(image=img)["image"]
-        save_path = os.path.join(output_folder, f"{filename}_aug{i}.jpg")
-        cv2.imwrite(save_path, augmented)
+    for i in range(4):  # Create n variations per image
+        augmented = transform(image=img)
+        aug_img = augmented["image"]
+        save_img_path = os.path.join(output_folder, f"{filename}_aug{i}.jpg")
+        cv2.imwrite(save_img_path, aug_img)
 
 # Use multiprocessing for speed
 if __name__ == "__main__":

@@ -106,7 +106,7 @@ def augment_and_save(image_path):
     else:
         bboxes, class_labels = [], []
 
-    for i in range(4):  # 4 augmentations per image
+    for i in range(4):  # n augmentations per image
         augmented = transform(image=img, bboxes=bboxes, class_labels=class_labels)
         aug_img = augmented["image"]
         aug_bboxes = augmented["bboxes"]
