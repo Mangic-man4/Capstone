@@ -14,7 +14,7 @@ transform = A.Compose([
     A.Rotate(limit=15, p=0.5),
     A.RandomGamma(p=0.3),
     A.MotionBlur(blur_limit=5, p=0.2),
-    A.GaussNoise(std_range=(0.1, 0.2), p=0.3)  # Adjust range if needed
+    A.GaussNoise(std_range=(0.1, 0.5), p=0.3)  # Adjust range if needed
 ])
 
 # Get the base directory where the script is located

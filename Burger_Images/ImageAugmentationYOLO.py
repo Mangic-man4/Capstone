@@ -15,7 +15,7 @@ transform = A.Compose([
     A.RandomGamma(p=0.3),
     A.MotionBlur(blur_limit=5, p=0.2),
     A.GaussNoise(std_range=(0.1, 0.2), p=0.3)  # Adjust range if needed
-], bbox_params=A.BboxParams(format='pascal_voc', label_fields=['class_labels'], min_visibility=0.3))
+], bbox_params=A.BboxParams(format='pascal_voc', label_fields=['class_labels'], min_area=0.01, min_visibility=0.3))
 
 # Input and output directories
 #input_folder = "\Capstone\Burger_Images\1_Raw"  # Change this to your folder
@@ -77,17 +77,27 @@ def write_yolo_label(save_path, bboxes, class_labels):
     """Converts Albumentations format back to YOLO and writes to file."""
     with open(save_path, "w") as f:
         for bbox, class_id in zip(bboxes, class_labels):
-            x_min, y_min, x_max, y_max = bbox
+            # Ensure class_id is an integer (fixes 15.0 issue)
+            class_id = int(class_id)
 
-            # Convert back to YOLO format and clamp values
-            x_center = max(0, min(1, (x_min + x_max) / 2))
-            y_center = max(0, min(1, (y_min + y_max) / 2))
-            width = max(0, min(1, x_max - x_min))
-            height = max(0, min(1, y_max - y_min))
+            x_min, y_min, x_max, y_max = bbox  # Albumentations bbox format
 
-            # Ensure values are valid before writing
+            # Convert to YOLO format (normalized values)
+            x_center = (x_min + x_max) / 2
+            y_center = (y_min + y_max) / 2
+            width = x_max - x_min
+            height = y_max - y_min
+
+            # Ensure values are in the [0,1] range
+            x_center = max(0, min(1, x_center))
+            y_center = max(0, min(1, y_center))
+            width = max(0, min(1, width))
+            height = max(0, min(1, height))
+
+            # Ensure valid bounding boxes are written
             if width > 0 and height > 0:
                 f.write(f"{class_id} {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f}\n")
+
 
 
 def augment_and_save(image_path):
@@ -112,13 +122,27 @@ def augment_and_save(image_path):
         aug_bboxes = augmented["bboxes"]
         aug_labels = augmented["class_labels"]
 
+        # Filter out invalid bounding boxes
+        valid_bboxes = []
+        valid_labels = []
+        for bbox, label in zip(aug_bboxes, aug_labels):
+            if len(bbox) == 4:  # Valid bbox should have 4 values (x_min, y_min, x_max, y_max)
+                valid_bboxes.append(bbox)
+                valid_labels.append(label)
+
+        # Skip saving if there are no valid bounding boxes
+        if not valid_bboxes:
+            print(f"Skipping {image_path} augmentation {i} due to empty labels.")
+            continue  # Skip this augmented image
+
         # Save image
         save_img_path = os.path.join(output_folder, f"{filename}_aug{i}.jpg")
         cv2.imwrite(save_img_path, aug_img)
 
         # Save corresponding YOLO label
         save_label_path = os.path.join(output_label_folder, f"{filename}_aug{i}.txt")
-        write_yolo_label(save_label_path, aug_bboxes, aug_labels)
+        write_yolo_label(save_label_path, valid_bboxes, valid_labels)
+
 
 # Use multiprocessing for speed
 if __name__ == "__main__":
