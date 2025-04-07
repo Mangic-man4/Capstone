@@ -1,0 +1,676 @@
+main.py
+import subprocess
+import threading
+import sys
+
+# Function to handle real-time output
+def print_output(process):
+    for stdout_line in iter(process.stdout.readline, ''):
+        if stdout_line:
+            print(stdout_line, end='')  # Print the script's output in real-time
+    process.stdout.close()
+
+# Function to handle real-time user input
+def send_input(process):
+    try:
+        while True:
+            # Get user input from terminal in real time
+            user_input = input()
+            if user_input:
+                process.stdin.write(user_input + '\n')
+                process.stdin.flush()
+    except Exception as e:
+        print(f"Error while sending input: {e}")
+
+# Function to run the scripts with real-time output and input (if needed)
+def run_script(script_path):
+    try:
+        # Start the process with Popen, capturing stdout, stderr, and stdin
+        process = subprocess.Popen(['python3', script_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE, text=True, bufsize=1)
+
+        # Start a thread to print stdout in real-time
+        output_thread = threading.Thread(target=print_output, args=(process,))
+        output_thread.start()
+
+        # If the script requires user input, start a thread to send user input in real-time
+        if 'assign_name.py' in script_path or 'create_dataset.py' in script_path:
+            input_thread = threading.Thread(target=send_input, args=(process,))
+            input_thread.start()
+            input_thread.join()  # Ensure the input thread completes
+
+        # Wait for the process to complete
+        process.wait()
+        output_thread.join()  # Ensure the output thread completes
+
+        # If there's an error, print the stderr content
+        if process.returncode != 0:
+            for stderr_line in iter(process.stderr.readline, ''):
+                print(stderr_line, end='')
+
+        process.stderr.close()
+
+    except Exception as e:
+        print(f"An error occurred while running {script_path}: {e}")
+
+# List of scripts to run in order
+scripts_to_run = [
+    "sam2/record_video.py",
+    "sam2/process_video.py",
+    "sam2/frames.py",
+    "sam2/sam2_segment.py",
+    "sam2/image_to_video.py",
+    "sam2/annotate.py",
+    "sam2/assign_name.py",      # This script requires user input
+    "sam2/create_dataset.py",   # This script requires user input
+    "sam2/clear_folders.py"
+]
+
+# Run each script in the specified order
+for script in scripts_to_run:
+    print(f"Running {script}...")
+    run_script(script)
+
+
+sam2_segment.py
+import os
+import torch
+import numpy as np
+import matplotlib.pyplot as plt
+from PIL import Image
+from sam2.build_sam import build_sam2_video_predictor
+
+output_img_folder = 'output'
+bitmask_folder = 'bitmask'
+
+# Create directories if they don't exist
+if not os.path.exists(output_img_folder):
+    os.makedirs(output_img_folder)
+if not os.path.exists(bitmask_folder):
+    os.makedirs(bitmask_folder)
+
+# Set up the torch environment
+torch.autocast(device_type="cuda", dtype=torch.bfloat16).__enter__()
+
+if torch.cuda.get_device_properties(0).major >= 8:
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+
+sam2_checkpoint = "checkpoints/sam2_hiera_large.pt"
+model_cfg = "sam2_hiera_l.yaml"
+predictor = build_sam2_video_predictor(model_cfg, sam2_checkpoint)
+
+def apply_white_mask(image, mask):
+    """Apply a solid white mask over the input image."""
+    # Ensure image is in RGBA format
+    image = image.convert("RGBA")
+    
+    # Check if there's a batch dimension (i.e., shape (1, H, W)) and squeeze it
+    if mask.shape[0] == 1:
+        mask = np.squeeze(mask, axis=0)
+    
+    # Ensure the mask is 2D at this point
+    if mask.ndim != 2:
+        raise ValueError(f"Unexpected mask shape after squeezing: {mask.shape}")
+    
+    # Create a blank white mask (255, 255, 255, 255 for fully opaque white)
+    white_mask = Image.new("RGBA", image.size, (255, 255, 255, 255))
+    
+    # Convert the binary mask (0 or 1 values) to a boolean array for masking
+    mask = mask.astype(bool)
+
+    # Convert the boolean mask to an image in mode "L" (grayscale)
+    mask_image = Image.fromarray(np.uint8(mask * 255), mode="L")
+    
+    # Composite the white mask onto the original image where the mask is True
+    output_image = Image.composite(white_mask, image, mask_image)
+    
+    return output_image
+
+video_dir = "video"
+
+# List all JPEG files in the video directory
+frame_names = [
+    p for p in os.listdir(video_dir)
+    if os.path.splitext(p)[-1].lower() in [".jpg", ".jpeg"]
+]
+frame_names.sort(key=lambda p: int(os.path.splitext(p)[0]))
+
+# Load the first frame to allow user interaction for annotation
+frame_idx = 0
+img = Image.open(os.path.join(video_dir, frame_names[frame_idx]))
+
+plt.figure(figsize=(12, 8))
+plt.imshow(img)
+
+print("Click on two points to define the object (left and right side/corner).", flush=True)
+points_clicked = plt.ginput(2, timeout=0)  # Wait for user to select 2 points
+plt.close()
+
+# Convert points to numpy array format
+points = np.array(points_clicked, dtype=np.float32)
+labels = np.array([1, 1], np.int32)  # Both points are positive clicks
+
+# Initialize inference state for the video
+inference_state = predictor.init_state(video_path=video_dir)
+predictor.reset_state(inference_state)
+
+ann_frame_idx = 0  # The frame index we interact with
+ann_obj_id = 1  # Give a unique id to each object
+
+# Add new points using the user-defined points
+_, out_obj_ids, out_mask_logits = predictor.add_new_points(
+    inference_state=inference_state,
+    frame_idx=ann_frame_idx,
+    obj_id=ann_obj_id,
+    points=points,
+    labels=labels,
+)
+
+# Get the binary mask (out_mask_logits > 0 means it's part of the object)
+binary_mask = (out_mask_logits[0] > 0.0).cpu().numpy()
+
+# Apply the white mask to the original image
+output_image = apply_white_mask(img, binary_mask)
+
+# Save the output image with white mask applied
+output_image.save(f'{output_img_folder}/segmented_frame_{ann_frame_idx}.png')
+
+# Ensure the binary mask is squeezed to 2D before saving
+binary_mask = np.squeeze(binary_mask)  # Remove any extra dimensions if present
+if binary_mask.ndim != 2:
+    raise ValueError(f"Binary mask has unexpected dimensions: {binary_mask.shape}")
+
+# Save the binary mask as a grayscale image
+binary_mask_img = Image.fromarray(np.uint8(binary_mask * 255), mode="L")
+binary_mask_img.save(f'{bitmask_folder}/binary_mask_frame_{ann_frame_idx}.png')
+
+output_image.show()  # Optional: Show the output image for quick preview
+
+print("Press Enter to continue...", flush=True)
+input()
+print("Continuing...", flush=True)
+
+# Run propagation throughout the video and collect the results
+video_segments = {}
+for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(inference_state):
+    video_segments[out_frame_idx] = {
+        out_obj_id: (out_mask_logits[i] > 0.0).cpu().numpy()
+        for i, out_obj_id in enumerate(out_obj_ids)
+    }
+
+# Visualization and saving step for each frame
+vis_frame_stride = 1
+for out_frame_idx in range(0, len(frame_names), vis_frame_stride):
+    # Load the current frame image
+    img = Image.open(os.path.join(video_dir, frame_names[out_frame_idx]))
+
+    # Apply the mask for each object in the frame and save the results
+    for out_obj_id, out_mask in video_segments[out_frame_idx].items():
+        # Ensure the mask is 2D
+        out_mask = np.squeeze(out_mask)
+        if out_mask.ndim != 2:
+            raise ValueError(f"Mask for frame {out_frame_idx} has unexpected shape: {out_mask.shape}")
+
+        # Apply the white mask
+        output_image = apply_white_mask(img, out_mask)
+        
+        # Save the segmented image
+        output_image.save(f'{output_img_folder}/segmented_frame_{out_frame_idx}.png')
+        
+        # Save the binary mask
+        binary_mask_img = Image.fromarray(np.uint8(out_mask * 255), mode="L")
+        binary_mask_img.save(f'{bitmask_folder}/binary_mask_frame_{out_frame_idx}.png')
+
+print("Processing complete!")
+
+
+record_video.py
+import cv2
+import os
+import platform
+
+print("Press c to record and q to quit/stop recording", flush=True)
+# Create the 'video' directory if it doesn't exist
+if not os.path.exists('video'):
+    os.makedirs('video')
+    
+# Function to get the number of USB ports
+def get_usb_ports_linux():
+    usb_ports = [f for f in os.listdir('/sys/class/video4linux/') if 'video' in f]
+    return len(usb_ports)
+
+# Function to get the number of USB ports on Windows
+def get_usb_ports_windows():
+    # This is a simplified way to count video devices on Windows
+    # You might need a more robust method depending on your setup
+    usb_ports = [f for f in os.listdir('C:\\') if 'video' in f]
+    return len(usb_ports)
+
+# Determine the operating system
+os_type = platform.system()
+
+# Initialize the video capture index
+index = 0
+
+# Get the number of USB ports based on the operating system
+if os_type == 'Linux':
+    num_ports = get_usb_ports_linux()
+elif os_type == 'Windows':
+    num_ports = get_usb_ports_windows()
+else:
+    raise Exception("Unsupported operating system")
+
+# Function to update the video capture object
+def update_capture(index):
+    global cap
+    cap.release()
+    cap = cv2.VideoCapture(index)
+    print(f"Switched to camera index: {index}", flush=True)
+
+# Initialize the video capture object
+cap = cv2.VideoCapture(index)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+cap.set(cv2.CAP_PROP_FPS, 60)
+
+# Define the codec and create VideoWriter object
+fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+out = None
+recording = False
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+    
+    # Get the height and width of the frame (1280x720)
+    height, width = frame.shape[:2]
+    
+    # Calculate the cropping region for a centered square crop
+    crop_size = min(width, height)  # This will be 720 since height is smaller than width
+    center_x, center_y = width // 2, height // 2
+    
+    # Define the cropping box (centered 720x720 square)
+    start_x = center_x - crop_size // 2
+    start_y = center_y - crop_size // 2
+    end_x = start_x + crop_size
+    end_y = start_y + crop_size
+
+    # Crop the frame to 720x720 from the center
+    cropped_frame = frame[start_y:end_y, start_x:end_x]
+
+    # Resize the cropped frame to 640x640
+    cropped_frame = cv2.resize(cropped_frame, (640, 640))
+    
+    # Display the cropped frame
+    cv2.imshow('frame', cropped_frame)
+
+    # Capture key press events
+    key = cv2.waitKey(1) & 0xFF
+    
+    if key == ord('c'):  # Start recording when 'c' is pressed
+        if not recording:
+            out = cv2.VideoWriter('video/video1.mp4', fourcc, 60.0, (640, 640))
+            recording = True
+    elif key == ord('q'):  # Exit when 'q' is pressed
+        break
+
+    # If recording, write the cropped frame to the video file
+    if recording:
+        out.write(cropped_frame)
+
+# Release everything when the job is finished
+cap.release()
+if recording:
+    out.release()
+cv2.destroyAllWindows()
+
+
+process_video.py
+import cv2
+import numpy as np
+import os
+
+def process_frame(frame):
+    """
+    Apply subtle noise reduction, brightness/contrast adjustment, and sharpening to a video frame.
+    """
+    # Denoise the frame
+    denoised_frame = cv2.fastNlMeansDenoisingColored(frame, None, 10, 10, 7, 21)
+
+    # Apply sharpening kernel to enhance details
+    sharpen_kernel = np.array([[0, -1, 0],
+                               [-1, 5,-1],
+                               [0, -1, 0]])
+    sharpened_frame = cv2.filter2D(denoised_frame, -1, sharpen_kernel)
+
+    # Adjust brightness and contrast
+    alpha = 1.1  # Slight contrast increase (1.0 is neutral)
+    beta = 15    # Slight brightness increase (0 is neutral)
+    adjusted_frame = cv2.convertScaleAbs(sharpened_frame, alpha=alpha, beta=beta)
+
+    return adjusted_frame
+
+def post_process_video(input_video_path, output_video_path):
+    # Open the input video
+    cap = cv2.VideoCapture(input_video_path)
+    
+    if not cap.isOpened():
+        print(f"Error opening video file: {input_video_path}")
+        return
+    
+    # Get video properties
+    frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    
+    # Define the codec and create a VideoWriter object to save the processed video
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(output_video_path, fourcc, fps, (frame_width, frame_height))
+    
+    print(f"Processing video: {input_video_path}", flush=True)
+    print(f"Resolution: {frame_width}x{frame_height}, FPS: {fps}, Total frames: {total_frames}", flush=True)
+    
+    # Process each frame
+    frame_count = 0
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+        
+        # Process the frame (denoising, sharpening, brightness/contrast adjustment)
+        processed_frame = process_frame(frame)
+        
+        # Write the processed frame to the output video
+        out.write(processed_frame)
+        
+        frame_count += 1
+        if frame_count % 100 == 0:  # Print progress every 100 frames
+            print(f"Processed {frame_count}/{total_frames} frames", flush=True)
+    
+    # Release resources
+    cap.release()
+    out.release()
+
+    print(f"Video processing complete. Saved to {output_video_path}", flush=True)
+
+# Replace original video with processed video (optional)
+def replace_original_video(input_video_path, output_video_path):
+    os.remove(input_video_path)  # Delete the original video
+    os.rename(output_video_path, input_video_path)  # Rename the processed video to original name
+    print(f"Replaced original video with the processed video.", flush=True)
+
+# Paths
+input_video = "video/video1.mp4"  # Path to your input video file
+output_video = "video/processed_video.mp4"  # Temporary path for the processed video
+
+# Process the video and replace the original
+post_process_video(input_video, output_video)
+replace_original_video(input_video, output_video)
+
+
+
+image_to_video.py
+import cv2
+import os
+
+print("Looping images. Press 'q' to quit.", flush=True)
+
+def loop_images_from_folder(folder_path, fps=60):
+    # Get list of all image files in the folder
+    image_list = [os.path.join(folder_path, img) for img in os.listdir(folder_path) if img.endswith(('.png', '.jpg', '.jpeg'))]
+    
+    # Sort the image list to ensure correct order based on frame number
+    image_list.sort(key=lambda x: int(os.path.splitext(x.split('_')[-1])[0]))
+    
+    # Read the first image to get the dimensions
+    frame = cv2.imread(image_list[0])
+    height, width, layers = frame.shape
+
+    # Create a window to display the video
+    cv2.namedWindow('Image Loop', cv2.WINDOW_NORMAL)
+    cv2.resizeWindow('Image Loop', width, height)
+
+    while True:
+        for image_path in image_list:
+            frame = cv2.imread(image_path)
+            cv2.imshow('Image Loop', frame)
+            
+            # Wait for the specified time or until 'q' is pressed
+            if cv2.waitKey(int(1000 / fps)) & 0xFF == ord('q'):
+                cv2.destroyAllWindows()
+                return
+
+# Example usage
+input_path = 'output'
+loop_images_from_folder(input_path)
+
+
+frames.py
+import os
+import subprocess
+
+input = 'video/video1.mp4'
+
+# Print the current working directory
+print(f"Current working directory: {os.getcwd()}", flush=True)
+
+# Check if the video file exists
+if not os.path.exists(input):
+    print(f"Error: The file {input} does not exist.", flush=True)
+else:
+    # Use ffmpeg to extract frames from the video starting from 00000.jpg
+    try:
+        result = subprocess.run(['ffmpeg', '-i', input, '-start_number', '0', 'video/%05d.jpg'], check=True, capture_output=True, text=True)
+        print(f"Output of ffmpeg command:\n{result.stdout}", flush=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Error occurred while running ffmpeg command:\n{e.stderr}")
+
+
+create_dataset.py
+import os
+import shutil
+import random
+
+# Function to check if a file is an image (based on extension)
+def is_image_file(filename):
+    valid_extensions = ['.jpg', '.jpeg', '.png']  # Add more extensions if needed
+    return os.path.splitext(filename)[1].lower() in valid_extensions
+
+def create_yolo_dataset(image_folder, yolo_folder, save_location):
+    # Create the Dataset directory with the necessary structure
+    dataset_path = os.path.join(save_location, 'Dataset')
+    os.makedirs(dataset_path, exist_ok=True)
+    
+    # Create train/val folders for images and labels
+    images_train_path = os.path.join(dataset_path, 'images', 'train')
+    images_val_path = os.path.join(dataset_path, 'images', 'val')
+    labels_train_path = os.path.join(dataset_path, 'labels', 'train')
+    labels_val_path = os.path.join(dataset_path, 'labels', 'val')
+
+    os.makedirs(images_train_path, exist_ok=True)
+    os.makedirs(images_val_path, exist_ok=True)
+    os.makedirs(labels_train_path, exist_ok=True)
+    os.makedirs(labels_val_path, exist_ok=True)
+
+    # Get list of image and YOLO label files, filtering out non-image files (like .mp4)
+    image_files = sorted([f for f in os.listdir(image_folder) if is_image_file(f)])
+    yolo_files = sorted(os.listdir(yolo_folder))
+
+    # Ensure that both image and YOLO label files match and are paired correctly
+    assert len(image_files) == len(yolo_files), "Number of images and YOLO labels must match."
+
+    # Combine the images and their corresponding label files
+    data_pairs = list(zip(image_files, yolo_files))
+    
+    # Shuffle the dataset for randomness
+    random.shuffle(data_pairs)
+    
+    # Split dataset into 80% train and 20% validation
+    train_size = int(0.8 * len(data_pairs))
+    train_pairs = data_pairs[:train_size]
+    val_pairs = data_pairs[train_size:]
+
+    # Function to copy files
+    def copy_files(pairs, images_dest, labels_dest):
+        for img_file, yolo_file in pairs:
+            # Copy image files
+            img_src = os.path.join(image_folder, img_file)
+            img_dst = os.path.join(images_dest, img_file)
+            shutil.copy(img_src, img_dst)
+
+            # Copy YOLO annotation files
+            yolo_src = os.path.join(yolo_folder, yolo_file)
+            yolo_dst = os.path.join(labels_dest, yolo_file)
+            shutil.copy(yolo_src, yolo_dst)
+
+    # Copy train and validation files to respective directories
+    copy_files(train_pairs, images_train_path, labels_train_path)
+    copy_files(val_pairs, images_val_path, labels_val_path)
+
+    # Create train.txt and val.txt files with image paths
+    def write_txt_file(pairs, txt_file, images_subfolder):
+        with open(txt_file, 'w') as f:
+            for img_file, _ in pairs:
+                img_path = os.path.join('Dataset', 'images', images_subfolder, img_file)
+                f.write(f"{img_path}\n")
+
+    # Write the train.txt and val.txt files
+    write_txt_file(train_pairs, os.path.join(dataset_path, 'train.txt'), 'train')
+    write_txt_file(val_pairs, os.path.join(dataset_path, 'val.txt'), 'val')
+
+    print(f"YOLO dataset created successfully at {dataset_path}")
+
+def main():
+    create_dataset = input("Do you want to create a YOLO dataset? (yes/no): ").strip().lower()
+    
+    if create_dataset != 'yes':
+        print("Exiting the script.", flush=True)
+        return
+    
+    while True:
+        save_location = input("Enter the save location for the dataset: ").strip()
+        
+        if os.path.isdir(save_location):
+            break
+        else:
+            print("Invalid location. Please enter a valid directory path.", flush=True)
+    
+    image_folder = "video"  # Directory containing images
+    yolo_folder = "annotations"  # Directory containing YOLO annotations (labels)
+
+    create_yolo_dataset(image_folder, yolo_folder, save_location)
+
+if __name__ == "__main__":
+    main()
+
+
+
+clear_folders.py
+import os
+import shutil
+
+def clear_folder(folder_path):
+    # Check if the folder exists
+    if os.path.exists(folder_path):
+        # Iterate over all the files and folders in the directory
+        for filename in os.listdir(folder_path):
+            file_path = os.path.join(folder_path, filename)
+            try:
+                # Check if it is a file or directory and remove accordingly
+                if os.path.isfile(file_path) or os.path.islink(file_path):
+                    os.unlink(file_path)
+                elif os.path.isdir(file_path):
+                    shutil.rmtree(file_path)
+            except Exception as e:
+                print(f'Failed to delete {file_path}. Reason: {e}')
+    else:
+        print(f'The folder {folder_path} does not exist.')
+
+folders_to_clear = ["video", "output", "bitmask", "bounding_boxes", "annotations"]
+
+for folder in folders_to_clear:
+    clear_folder(folder)
+
+
+annotate.py
+import os
+from PIL import Image, ImageDraw
+import numpy as np
+
+def process_image(image_path, output_img_path, yolo_anno_path, class_id=0):
+    """Draw a bounding box around the white area based on the input image (bitmask),
+    and save YOLO annotations."""
+    # Load the image (bitmask) where the white areas represent the object
+    image = Image.open(image_path).convert("L")  # Convert to grayscale
+    image_np = np.array(image)
+
+    height, width = image_np.shape[:2]
+
+    # Create a binary mask where white is 1 and everything else is 0
+    mask = image_np == 255
+
+    # Detect the bounding box of the white area
+    white_pixels = np.argwhere(mask)
+
+    if white_pixels.size > 0:
+        # Find the bounding box around the white pixels
+        top_left = white_pixels.min(axis=0)  # (y_min, x_min)
+        bottom_right = white_pixels.max(axis=0)  # (y_max, x_max)
+
+        # YOLO bounding box parameters (normalized)
+        x_center = (top_left[1] + bottom_right[1]) / 2 / width
+        y_center = (top_left[0] + bottom_right[0]) / 2 / height
+        bbox_width = (bottom_right[1] - top_left[1]) / width
+        bbox_height = (bottom_right[0] - top_left[0]) / height
+
+        # Write YOLO annotation file (.txt)
+        with open(yolo_anno_path, 'w') as f:
+            f.write(f"{class_id} {x_center:.6f} {y_center:.6f} {bbox_width:.6f} {bbox_height:.6f}\n")
+
+        # Draw the bounding box on the image (for visualization purposes)
+        processed_image = Image.open(image_path).convert("RGB")
+        draw = ImageDraw.Draw(processed_image)
+        draw.rectangle([tuple(top_left[::-1]), tuple(bottom_right[::-1])], outline="red", width=2)
+
+        # Save the processed image with bounding box
+        processed_image.save(output_img_path)
+    else:
+        # Create an empty annotation file
+        with open(yolo_anno_path, 'w') as f:
+            pass
+        print(f"No white area found in {image_path}, created empty annotation file.")
+
+def process_images_in_folder(input_folder, output_img_folder, yolo_anno_folder):
+    """Process all images in the input folder and save results in corresponding output folders."""
+    if not os.path.exists(output_img_folder):
+        os.makedirs(output_img_folder)
+    if not os.path.exists(yolo_anno_folder):
+        os.makedirs(yolo_anno_folder)
+
+    # Sort filenames to ensure consistent order based on frame number
+    filenames = sorted(os.listdir(input_folder), key=lambda x: int(x.split('_')[-1].split('.')[0]))
+
+    for idx, filename in enumerate(filenames):
+        if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
+            input_path = os.path.join(input_folder, filename)
+            output_img_path = os.path.join(output_img_folder, filename)
+            yolo_anno_path = os.path.join(yolo_anno_folder, f"{idx:05d}.txt")
+
+            print(f"Processing {filename}...")
+            process_image(input_path, output_img_path, yolo_anno_path)
+
+    print("Processing complete.")
+
+
+# Set your input and output folder paths
+input_folder = "bitmask"  # Use bitmask folder where the segmentation masks are stored
+output_img_folder = "bounding_boxes"
+yolo_anno_folder = "annotations"
+
+# Process all images in the folder
+process_images_in_folder(input_folder, output_img_folder, yolo_anno_folder)
+
+
+
