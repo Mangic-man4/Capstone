@@ -1,3 +1,5 @@
+The custom code that Lasse gave me for SAM 2 (original, unedited):
+
 main.py
 import subprocess
 import threading
