@@ -70,8 +70,8 @@ class CookingApp:
         self.menu_buttons = []
         menu_options = {
             "Main Menu": self.show_main_menu,
-            "Settings": self.show_settings,
-            "Calibration": self.show_calibration,
+            "Settings": self.show_settings, # Disabled because tab is empty
+            "Calibration": self.show_calibration, # Disabled because tab is empty
             "Coordinate Testing": self.show_coordinate_testing,
             "Webcam/Griddle View": self.show_griddle_view,
             "Simulated View": self.open_simulated_view,
@@ -84,7 +84,10 @@ class CookingApp:
 
         for text, command in menu_options.items():
             #btn = tk.Button(self.sidebar, text=text, command=command, fg="white", bg="gray40")
-            btn = tk.Button(self.sidebar, text=text, command=lambda cmd=command: self.switch_tab(cmd), fg="white", bg="gray40")
+            btn = tk.Button(self.sidebar, text=text, command=lambda cmd=command: self.switch_tab(cmd), fg="white", bg="gray40", disabledforeground="gray60")
+
+            if text in ["Settings", "Calibration"]:
+                btn.config(state="disabled")
 
             btn.pack(fill="x", pady=5)
             self.menu_buttons.append(btn)
