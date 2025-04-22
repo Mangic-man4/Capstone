@@ -6,16 +6,10 @@ import numpy as np
 import torch
 import subprocess
 import threading
-from threading import Thread
-from threading import Lock
 from ultralytics import YOLO
 import os
 import glob
 from datetime import datetime
-import time
-from math import dist as euclidean
-import queue
-
 
 class CookingApp:
     def __init__(self, root):
@@ -186,8 +180,8 @@ class CookingApp:
 
         threading.Thread(target=launch_external_yolo, daemon=True).start()
 
-        self.video_label = tk.Label(self.current_screen, bg="gray25", text="Launching AI Burger UI...")
-        self.video_label.pack()
+        self.video_label = tk.Label(self.current_screen, font=("Arial", 12), fg="white", bg="gray25", text="Launching YOLO_UI.py...")
+        self.video_label.pack(pady=200)
 
         
 
