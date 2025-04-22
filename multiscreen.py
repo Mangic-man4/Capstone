@@ -54,15 +54,6 @@ class CookingApp:
         self.model = YOLO("best.pt")  # model file name
         #yolo task=detect mode=predict model=yolov5s.pt source=0  <-- run in command prompt!!
 
-        self.tracked_dots = []  # Initial tracked dots
-        self.q = queue.Queue()  # Queue for safely passing data from threads to UI
-        self.max_missing_frames = 50
-        self.distance_threshold = 40
-        self.scaled_width = 960
-        self.scaled_height = 640
-
-
-
     def find_camera(self):
         """Attempts to find an external camera, falls back to default webcam if not found."""
         """Only used with secondary camera find method"""
@@ -195,7 +186,7 @@ class CookingApp:
 
         threading.Thread(target=launch_external_yolo, daemon=True).start()
 
-        self.video_label = tk.Label(self.current_screen, text="Launching AI Burger UI...")
+        self.video_label = tk.Label(self.current_screen, bg="gray25", text="Launching AI Burger UI...")
         self.video_label.pack()
 
         
@@ -259,12 +250,12 @@ class CookingApp:
         self.video_label = tk.Label(self.current_screen)
         self.video_label.pack()
         
-        #self.cap = cv2.VideoCapture(1)  # External camera
-        #if not self.cap.isOpened():
-        #    print("External camera not found. Falling back to default webcam.")
-        #    self.cap = cv2.VideoCapture(0)
+        """self.cap = cv2.VideoCapture(1)  # External camera
+        if not self.cap.isOpened():
+            print("External camera not found. Falling back to default webcam.")
+            self.cap = cv2.VideoCapture(0)
         
-        #self.update_ai_detection()
+        self.update_ai_detection()"""
 
     def update_ai_detection(self): # Don't use beacuse it uses YOLOv5
         """Runs YOLOv5 on the live feed and updates the UI."""
@@ -294,8 +285,6 @@ class CookingApp:
             cv2.putText(frame, f"{label} ({conf:.2f})", (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
         
         return frame
-    
-
 
     def webcam_yolo_v8(self):
         model = YOLO("best.pt")
