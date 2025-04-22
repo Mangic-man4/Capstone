@@ -6,10 +6,15 @@ import numpy as np
 import torch
 import subprocess
 import threading
+from threading import Thread
+from threading import Lock
 from ultralytics import YOLO
 import os
 import glob
 from datetime import datetime
+import time
+from math import dist as euclidean
+import queue
 
 
 class CookingApp:
@@ -49,6 +54,13 @@ class CookingApp:
         self.model = YOLO("best.pt")  # model file name
         #yolo task=detect mode=predict model=yolov5s.pt source=0  <-- run in command prompt!!
 
+        self.tracked_dots = []  # Initial tracked dots
+        self.q = queue.Queue()  # Queue for safely passing data from threads to UI
+        self.max_missing_frames = 50
+        self.distance_threshold = 40
+        self.scaled_width = 960
+        self.scaled_height = 640
+
 
 
     def find_camera(self):
@@ -78,8 +90,10 @@ class CookingApp:
             "Coordinate Testing": self.show_coordinate_testing,
             "Webcam/Griddle View": self.show_griddle_view,
             "Simulated View": self.open_simulated_view,
-            "Burger Vision": self.show_burger_vision,
-            "AI Burger Video": self.show_ai_burger_detection
+            "AI Burger Webcam": self.show_burger_vision,
+            "AI Burger Video": self.show_ai_burger_detection,
+            "AI Burger UI": self.show_ai_burger_ui,
+            "Exit": self.root.quit
 
         }
 
@@ -131,34 +145,60 @@ class CookingApp:
         self.video_label.pack()
         
         #self.cap = self.find_camera()  # Use the method to find the correct camera (secondary method)
-        self.cap = cv2.VideoCapture(1)  # Default method (0 for pc's webcam, 1 for external camera)
+        #self.cap = cv2.VideoCapture(1)  # Default method (0 for pc's webcam, 1 for external camera)
+        self.cap = self.find_camera()
 
-        if not self.cap.isOpened():  # Check if the camera opened successfully
-            print("External camera not found. Falling back to default webcam at index 0.")
-            self.cap = cv2.VideoCapture(0)  # Fallback to the built-in webcam (index 0)
+
+        #if not self.cap.isOpened():  # Check if the camera opened successfully
+        #    print("External camera not found. Falling back to default webcam at index 0.")
+        #   self.cap = cv2.VideoCapture(0)  # Fallback to the built-in webcam (index 0)
 
         self.update_webcam_feed()
         
 
     def show_burger_vision(self): 
         self.switch_screen("🍔 YOLOv8 Webcam RGB Tracker")
+
+        """def launch_external_yolo_webcam():
+            subprocess.Popen(["python", "RGB_Tracker_Webcam.py"]) # Launch the external script in same directory
+
+        threading.Thread(target=launch_external_yolo_webcam, daemon=True).start()
+
+        self.video_label = tk.Label(self.current_screen, text="Launching AI Burger Webcam...")
+        self.video_label.pack()"""
+
         threading.Thread(target=self.webcam_yolo_v8, daemon=True).start()
 
         """Displays Burger Vision analysis in the main window."""
 
         #self.switch_screen("🍔 Burger Vision Analysis")
         
-        #self.image_label = tk.Label(self.current_screen, bg="gray25")
-        #self.image_label.pack()
+        self.image_label = tk.Label(self.current_screen, bg="gray25")
+        self.image_label.pack()
         
-        #self.analysis_label = tk.Label(self.current_screen, text="", font=("Arial", 14), fg="white", bg="gray25")
-        #self.analysis_label.pack(pady=10)
+        self.analysis_label = tk.Label(self.current_screen, text="", font=("Arial", 14), fg="white", bg="gray25")
+        self.analysis_label.pack(pady=10)
 
-        #self.color_display = tk.Canvas(self.current_screen, width=300, height=50, bg="gray25", highlightthickness=0)
-        #self.color_display.pack(pady=5)
+        self.color_display = tk.Canvas(self.current_screen, width=300, height=50, bg="gray25", highlightthickness=0)
+        self.color_display.pack(pady=5)
         
         #self.analyze_burger_images()
         #self.update_burger_image()
+
+    def show_ai_burger_ui(self):
+        """Displays the AI Burger UI in the main window."""
+        self.switch_screen("AI Burger UI")
+
+        # Call the original YOLO_UI script as a separate process
+        def launch_external_yolo():
+            subprocess.Popen(["python", "YOLO_UI.py"]) # Launch the external script in same directory
+
+        threading.Thread(target=launch_external_yolo, daemon=True).start()
+
+        self.video_label = tk.Label(self.current_screen, text="Launching AI Burger UI...")
+        self.video_label.pack()
+
+        
 
     def update_webcam_feed(self):
         """Captures video frames, applies burger detection, and updates the Tkinter UI."""
@@ -204,11 +244,20 @@ class CookingApp:
 
     def show_ai_burger_detection(self):
         self.switch_screen("📼 YOLOv8 Video RGB Tracker")
-        threading.Thread(target=self.video_yolo_v8, daemon=True).start()
         """Displays AI-based burger detection in the main window."""
+
+        """def launch_external_yolo_video():
+            subprocess.Popen(["python", "RGB_Tracker_Video.py"]) # Launch the external script in same directory
+
+        threading.Thread(target=launch_external_yolo_video, daemon=True).start()
+
+        self.video_label = tk.Label(self.current_screen, text="Launching AI Burger Video...")
+        self.video_label.pack()"""
+        
+        threading.Thread(target=self.video_yolo_v8, daemon=True).start()
         #self.switch_screen("🤖 AI Burger Detection")
-        #self.video_label = tk.Label(self.current_screen)
-        #self.video_label.pack()
+        self.video_label = tk.Label(self.current_screen)
+        self.video_label.pack()
         
         #self.cap = cv2.VideoCapture(1)  # External camera
         #if not self.cap.isOpened():
@@ -217,7 +266,7 @@ class CookingApp:
         
         #self.update_ai_detection()
 
-    def update_ai_detection(self):
+    def update_ai_detection(self): # Don't use beacuse it uses YOLOv5
         """Runs YOLOv5 on the live feed and updates the UI."""
         if self.cap:
             ret, frame = self.cap.read()
@@ -246,6 +295,8 @@ class CookingApp:
         
         return frame
     
+
+
     def webcam_yolo_v8(self):
         model = YOLO("best.pt")
         cap = self.find_camera()
@@ -357,6 +408,11 @@ class CookingApp:
         cv2.destroyAllWindows()
         log.close()
         print("✅ All videos processed.")
+
+    def ui_yolo_v8(self):
+        # Deprecated: Using external YOLO_UI.py script via subprocess
+        pass
+        
 
     def analyze_burger_images(self):
         """Loads burger images and dynamically determines cooking states."""
