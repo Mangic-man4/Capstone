@@ -345,10 +345,28 @@ class CookingApp:
 
         for video_path in video_paths:
             cap = cv2.VideoCapture(video_path)
+
+            cv2.namedWindow("Filtered Patty Detection", cv2.WINDOW_NORMAL)
+            cv2.resizeWindow("Filtered Patty Detection", 960, 720)
+
+
+
             print(f"▶️ Playing: {video_path}")
             if not cap.isOpened():
                 print(f"❌ Could not open video: {video_path}")
                 continue
+            
+            # Why twice? IDK, but it works
+            cv2.namedWindow("Filtered Patty Detection", cv2.WINDOW_NORMAL)
+            cv2.resizeWindow("Filtered Patty Detection", 960, 720)
+
+
+            # Get video frame dimensions and resize the window accordingly
+            # Don't use if video has black bars on the sides
+            frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            #cv2.resizeWindow("Filtered Patty Detection", frame_width, frame_height)
+
 
             playing = True
             fps = cap.get(cv2.CAP_PROP_FPS)
@@ -360,6 +378,14 @@ class CookingApp:
                     if not ret:
                         print("✅ Video finished.")
                         break
+
+                    # === Quick fix: manually crop black bars from left and right ===
+                    height, width, _ = frame.shape
+                    crop_left = 480
+                    crop_right = width - 480
+                    crop_top = 180
+                    crop_bottom = height - 180
+                    frame = frame[crop_top:crop_bottom, crop_left:crop_right]
 
                     results = model(frame, conf=0.25)[0]
                     for box in results.boxes:
