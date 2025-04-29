@@ -70,8 +70,6 @@ crashlytics-build.properties
 # Temporary auto-generated Android Assets
 /[Aa]ssets/[Ss]treamingAssets/aa.meta
 /[Aa]ssets/[Ss]treamingAssets/aa/*
-patty_rgb_log.txt
+**/patty_rgb_log.txt
 Burger_video/burger3.mp4
 Final package/Burger_video/burger.mp4
-Final package/patty_rgb_log.txt
-Final package (no video)/patty_rgb_log.txt
