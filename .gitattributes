@@ -2,3 +2,5 @@
 * text=auto
 Final\ package.zip filter=lfs diff=lfs merge=lfs -text
 Final\ package/Burger_video/burger.mp4 filter=lfs diff=lfs merge=lfs -text
+Final[[:space:]]package.zip filter=lfs diff=lfs merge=lfs -text
+Final[[:space:]]package/Burger_videos/burger.mp4 filter=lfs diff=lfs merge=lfs -text
