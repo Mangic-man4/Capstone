@@ -9,7 +9,7 @@ import time
 from math import dist as euclidean
 
 # Paths
-video_path = r"Burger_video\burger3.mp4"
+video_path = r"Burger_video\burger.mp4"
 model_path = "best.pt"
 
 # Load YOLO model

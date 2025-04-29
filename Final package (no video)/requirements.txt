@@ -1,0 +1,10 @@
+tkinter
+screeninfo
+opencv-python
+Pillow
+numpy
+torch
+subprocess
+threading
+ultralytics
+glob2
